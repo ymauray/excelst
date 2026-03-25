@@ -53,6 +53,19 @@ This is a CLI tool (`excelst`) that compiles `.exl` source files into `.xlsx` Ex
 
 **Excel generation**: Uses `ClosedXML` (`XLWorkbook`) to produce `.xlsx` files. Output path is always derived from the input path via `Path.ChangeExtension(input, ".xlsx")`.
 
+**Compiler pipeline** (`src/excelst/Compiler/`):
+- `Lexer.cs` — text → `List<Token>`
+- `Parser.cs` — tokens → AST (`Programme`), recursive descent with operator precedence chain: `ParseComparison` → `ParseAddition` → `ParseMultiplication` → `ParseUnary` → `ParsePrimary`
+- `ExcelGenerator.cs` — AST → `XLWorkbook`, with a `Scope` class for variable resolution
+- `Token.cs` — `TokenKind` enum + `Token` record
+- `Ast.cs` — two hierarchies: `Expression` (AST nodes output by parser) and `Value` (runtime values output by generator); unified `Statement` hierarchy
+
+**Key design points**:
+- `let` = immutable, `var` = mutable — enforced by `Scope.Define/Set`
+- `while` has a 100,000-iteration guard against infinite loops
+- `cell(addr, val)` — `addr` is an `Expression` (allows `"A" + i`), must evaluate to `StringValue`
+- Each compiler stage has its own exception type: `LexerException`, `ParseException`, `GeneratorException`
+
 **Key dependency API notes** — `System.CommandLine` 2.0.5 uses a revised API (not the older beta):
 - `Command.Add(argument/option/subcommand)` instead of `AddArgument`/`AddCommand`
 - `command.SetAction((ParseResult result) => { ... })` instead of `SetHandler`

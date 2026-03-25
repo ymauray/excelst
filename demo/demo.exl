@@ -1,29 +1,35 @@
-// Variables
-let titre    = "Poste"
-let montant  = "Montant"
-let loyer    = 1200
-let courses  = 350.50
-let pi       = 3.1415927
+// ── Variables immutables ──────────────────────────────────────────────────────
+let titre_poste   = "Poste"
+let titre_montant = "Montant"
 
-// Déclaration des feuilles
+// ── Feuilles ──────────────────────────────────────────────────────────────────
 sheets.add("Budget")
-sheets.add("Détails", after: "Budget")
-sheets.add("Résumé", after: "Détails")
+sheets.add("Données", after: "Budget")
 
-// Contenu
+// ── Feuille Budget ────────────────────────────────────────────────────────────
 sheet("Budget", {
-    cell("A1", titre)
-    cell("B1", montant)
+    // En-têtes
+    cell("A1", titre_poste)
+    cell("B1", titre_montant)
+
+    // Données fixes
     cell("A2", "Loyer")
-    cell("B2", loyer)
+    cell("B2", 1200)
     cell("A3", "Courses")
-    cell("B3", courses)
+    cell("B3", 450)
+    cell("A4", "Transport")
+    cell("B4", 85)
 })
 
-sheet("Détails", {
-    cell("A1", "Pi")
-    cell("B1", pi)
-})
+// ── Feuille Données : table 10x2 générée par boucle ──────────────────────────
+sheet("Données", {
+    cell("A1", "Index")
+    cell("B1", "Carré")
 
-sheet("Résumé", {
+    var i = 1
+    while i <= 10 {
+        cell("A" + (i + 1), i)
+        cell("B" + (i + 1), i * i)
+        i = i + 1
+    }
 })
