@@ -53,6 +53,31 @@ jobs:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
 
+      - name: Install nfpm
+        if: runner.os == 'Linux'
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update -q
+          sudo apt-get install -y nfpm
+
+      - name: Package (.deb / .rpm)
+        if: runner.os == 'Linux'
+        run: |
+          VERSION=${GITHUB_REF_NAME#v} nfpm package --config nfpm.yaml --packager deb --target excelst-linux-x64.deb
+          VERSION=${GITHUB_REF_NAME#v} nfpm package --config nfpm.yaml --packager rpm --target excelst-linux-x64.rpm
+
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
+        with:
+          name: excelst-linux-x64.deb
+          path: excelst-linux-x64.deb
+
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
+        with:
+          name: excelst-linux-x64.rpm
+          path: excelst-linux-x64.rpm
+
   release:
     name: Create Release
     needs: build
