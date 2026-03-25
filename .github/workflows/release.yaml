@@ -78,6 +78,42 @@ jobs:
           name: excelst-linux-x64.rpm
           path: excelst-linux-x64.rpm
 
+      - name: Build AppImage
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p excelst.AppDir/usr/bin
+          cp out/excelst excelst.AppDir/usr/bin/
+
+          printf '#!/bin/bash\nexec "$APPDIR/usr/bin/excelst" "$@"\n' > excelst.AppDir/AppRun
+          chmod +x excelst.AppDir/AppRun
+
+          printf '[Desktop Entry]\nName=excelst\nExec=excelst\nIcon=excelst\nType=Application\nCategories=Utility;\n' \
+            > excelst.AppDir/excelst.desktop
+
+          python3 -c "
+          import zlib, struct
+          w, h = 64, 64
+          raw = b''.join(b'\x00' + bytes([33, 150, 243] * w) for _ in range(h))
+          def chunk(t, d):
+              c = zlib.crc32(t+d) & 0xffffffff
+              return struct.pack('>I', len(d)) + t + d + struct.pack('>I', c)
+          png = (b'\x89PNG\r\n\x1a\n'
+              + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+              + chunk(b'IDAT', zlib.compress(raw))
+              + chunk(b'IEND', b''))
+          open('excelst.AppDir/excelst.png', 'wb').write(png)
+          "
+
+          curl -Lo appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run excelst.AppDir excelst-linux-x64.AppImage
+
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
+        with:
+          name: excelst-linux-x64.AppImage
+          path: excelst-linux-x64.AppImage
+
   release:
     name: Create Release
     needs: build
