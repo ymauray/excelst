@@ -29,6 +29,9 @@ L'idée centrale : le fichier `.exl` est la source de vérité, versionnable et 
 - [x] Concaténation de chaînes — `"texte" + variable`
 - [x] Tests unitaires — 77 tests dans `tests/excelst.Tests`
 - [x] Binaire autonome — `dotnet publish` produit un exe single-file auto-détectant la plateforme
+- [x] Release automatique sur tag `vX.Y.Z` — binaires pour linux-x64, win-x64, osx-arm64 + paquets `.deb` et `.rpm`
+- [x] Homebrew tap — `brew install ymauray/tap/excelst` (repo `ymauray/homebrew-tap`, mis à jour automatiquement)
+- [x] Scoop bucket — `scoop install excelst` (repo `ymauray/scoop-bucket`, mis à jour automatiquement)
 
 ### Syntaxe `.exl`
 
