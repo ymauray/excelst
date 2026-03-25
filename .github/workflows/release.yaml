@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            archive: excelst-linux-x64.tar.gz
+          - os: windows-latest
+            rid: win-x64
+            archive: excelst-win-x64.zip
+          - os: macos-latest
+            rid: osx-arm64
+            archive: excelst-osx-arm64.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Publish
+        run: >
+          dotnet publish src/excelst/excelst.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained
+          -o out
+
+      - name: Archive (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: tar -czf ${{ matrix.archive }} -C out excelst
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path out\excelst.exe -DestinationPath ${{ matrix.archive }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
