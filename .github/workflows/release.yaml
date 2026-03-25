@@ -92,3 +92,30 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION=${VERSION#v}
+          MACOS_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${{ github.ref_name }}/excelst-osx-arm64.tar.gz" | sha256sum | cut -d' ' -f1)
+          LINUX_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${{ github.ref_name }}/excelst-linux-x64.tar.gz" | sha256sum | cut -d' ' -f1)
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/ymauray/homebrew-tap.git" tap
+          cd tap
+
+          VERSION=$VERSION MACOS_SHA=$MACOS_SHA LINUX_SHA=$LINUX_SHA python3 << 'PYEOF'
+          import re, os
+          content = open('Formula/excelst.rb').read()
+          content = re.sub(r'version "[^"]*"', f'version "{os.environ["VERSION"]}"', content)
+          shas = iter([os.environ['MACOS_SHA'], os.environ['LINUX_SHA']])
+          content = re.sub(r'sha256 "[a-f0-9]*"', lambda m: f'sha256 "{next(shas)}"', content)
+          open('Formula/excelst.rb', 'w').write(content)
+          PYEOF
+
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add Formula/excelst.rb
+          git diff --staged --quiet || git commit -m "bump excelst to ${VERSION}"
+          git push
