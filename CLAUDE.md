@@ -30,6 +30,13 @@ dotnet publish src/excelst/excelst.csproj -c Release -r osx-arm64
 
 > Note: .NET 10 generates `excelst.slnx` (new solution format), not `excelst.sln`.
 
+## CI / GitHub
+
+- **CI** (`.github/workflows/ci.yaml`) — lance `dotnet test` sur ubuntu à chaque push sur `main` et chaque PR. Le check s'appelle `Tests`.
+- **Release** (`.github/workflows/release.yaml`) — déclenché par un tag `vX.Y.Z` ; produit trois binaires (linux-x64, win-x64, osx-arm64) et crée une GitHub Release.
+- **Dependabot** (`.github/dependabot.yml`) — surveille les GitHub Actions et les paquets NuGet, mises à jour mensuelles groupées.
+- **Branch protection** sur `main` : le merge est bloqué si le check `Tests` échoue (configuré dans Settings → Branches).
+
 ## Git
 
 Commits follow the **Conventional Commits** specification:
