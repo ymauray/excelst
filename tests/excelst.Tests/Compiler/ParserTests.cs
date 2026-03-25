@@ -72,8 +72,8 @@ public class ParserTests
         var prog = Parse("sheets.add(\"A\")\nsheet(\"A\", { cell(\"A1\", \"Texte\") })");
         var block = Assert.IsType<SheetBlock>(prog.Statements[1]);
         var cell = Assert.IsType<CellStatement>(block.Statements[0]);
-        Assert.Equal("A1", cell.Address);
-        Assert.Equal("Texte", Assert.IsType<StringValue>(cell.Value).Content);
+        Assert.Equal("A1", Assert.IsType<StringValue>(Assert.IsType<LiteralExpr>(cell.Address).Val).Content);
+        Assert.Equal("Texte", Assert.IsType<StringValue>(Assert.IsType<LiteralExpr>(cell.Value).Val).Content);
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public class ParserTests
         var prog = Parse("sheets.add(\"A\")\nsheet(\"A\", { cell(\"B2\", 99) })");
         var block = Assert.IsType<SheetBlock>(prog.Statements[1]);
         var cell = Assert.IsType<CellStatement>(block.Statements[0]);
-        Assert.Equal(99L, Assert.IsType<IntegerValue>(cell.Value).Content);
+        Assert.Equal(99L, Assert.IsType<IntegerValue>(Assert.IsType<LiteralExpr>(cell.Value).Val).Content);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class ParserTests
         var prog = Parse("sheets.add(\"A\")\nsheet(\"A\", { cell(\"C3\", 1.5) })");
         var block = Assert.IsType<SheetBlock>(prog.Statements[1]);
         var cell = Assert.IsType<CellStatement>(block.Statements[0]);
-        Assert.Equal(1.5, Assert.IsType<FloatValue>(cell.Value).Content);
+        Assert.Equal(1.5, Assert.IsType<FloatValue>(Assert.IsType<LiteralExpr>(cell.Value).Val).Content);
     }
 
     // ── Erreurs ───────────────────────────────────────────────────────────────

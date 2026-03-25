@@ -24,7 +24,7 @@ public class ArrayTests
     {
         var prog = Parse("let a = ()");
         var stmt = Assert.IsType<LetStatement>(Assert.Single(prog.Statements));
-        var arr = Assert.IsType<ArrayValue>(stmt.Value);
+        var arr = Assert.IsType<ArrayLiteralExpr>(stmt.Initializer);
         Assert.Empty(arr.Items);
     }
 
@@ -32,18 +32,18 @@ public class ArrayTests
     public void Tableau_un_element_virgule_obligatoire()
     {
         var prog = Parse("let a = (42,)");
-        var arr = Assert.IsType<ArrayValue>(
-            Assert.IsType<LetStatement>(Assert.Single(prog.Statements)).Value);
+        var arr = Assert.IsType<ArrayLiteralExpr>(
+            Assert.IsType<LetStatement>(Assert.Single(prog.Statements)).Initializer);
         Assert.Single(arr.Items);
-        Assert.Equal(42L, Assert.IsType<IntegerValue>(arr.Items[0]).Content);
+        Assert.Equal(42L, Assert.IsType<IntegerValue>(Assert.IsType<LiteralExpr>(arr.Items[0]).Val).Content);
     }
 
     [Fact]
     public void Tableau_plusieurs_elements()
     {
         var prog = Parse("let a = (1, 2, 3)");
-        var arr = Assert.IsType<ArrayValue>(
-            Assert.IsType<LetStatement>(Assert.Single(prog.Statements)).Value);
+        var arr = Assert.IsType<ArrayLiteralExpr>(
+            Assert.IsType<LetStatement>(Assert.Single(prog.Statements)).Initializer);
         Assert.Equal(3, arr.Items.Count);
     }
 
@@ -51,8 +51,8 @@ public class ArrayTests
     public void Tableau_virgule_finale_acceptee()
     {
         var prog = Parse("let a = (1, 2, 3,)");
-        var arr = Assert.IsType<ArrayValue>(
-            Assert.IsType<LetStatement>(Assert.Single(prog.Statements)).Value);
+        var arr = Assert.IsType<ArrayLiteralExpr>(
+            Assert.IsType<LetStatement>(Assert.Single(prog.Statements)).Initializer);
         Assert.Equal(3, arr.Items.Count);
     }
 
@@ -60,11 +60,11 @@ public class ArrayTests
     public void Tableau_types_mixtes()
     {
         var prog = Parse("let a = (1, \"hello\", 3.14)");
-        var arr = Assert.IsType<ArrayValue>(
-            Assert.IsType<LetStatement>(Assert.Single(prog.Statements)).Value);
-        Assert.IsType<IntegerValue>(arr.Items[0]);
-        Assert.IsType<StringValue>(arr.Items[1]);
-        Assert.IsType<FloatValue>(arr.Items[2]);
+        var arr = Assert.IsType<ArrayLiteralExpr>(
+            Assert.IsType<LetStatement>(Assert.Single(prog.Statements)).Initializer);
+        Assert.IsType<IntegerValue>(Assert.IsType<LiteralExpr>(arr.Items[0]).Val);
+        Assert.IsType<StringValue>(Assert.IsType<LiteralExpr>(arr.Items[1]).Val);
+        Assert.IsType<FloatValue>(Assert.IsType<LiteralExpr>(arr.Items[2]).Val);
     }
 
     [Fact]
@@ -72,20 +72,21 @@ public class ArrayTests
     {
         var prog = Parse("let a = (42)");
         var stmt = Assert.IsType<LetStatement>(Assert.Single(prog.Statements));
-        Assert.IsType<IntegerValue>(stmt.Value); // pas un ArrayValue
+        var lit = Assert.IsType<LiteralExpr>(stmt.Initializer); // pas un ArrayLiteralExpr
+        Assert.IsType<IntegerValue>(lit.Val);
     }
 
     // ── Parser — accès .at() ─────────────────────────────────────────────────
 
     [Fact]
-    public void At_produit_ArrayAccessValue()
+    public void At_produit_ArrayAccessExpr()
     {
         var prog = Parse("sheets.add(\"S\")\nsheet(\"S\", { cell(\"A1\", arr.at(2)) })");
         var block = Assert.IsType<SheetBlock>(prog.Statements[1]);
         var cell = Assert.IsType<CellStatement>(Assert.Single(block.Statements));
-        var access = Assert.IsType<ArrayAccessValue>(cell.Value);
+        var access = Assert.IsType<ArrayAccessExpr>(cell.Value);
         Assert.Equal("arr", access.Name);
-        Assert.Equal(2, access.Index);
+        Assert.Equal(2L, Assert.IsType<IntegerValue>(Assert.IsType<LiteralExpr>(access.Index).Val).Content);
     }
 
     // ── Générateur ────────────────────────────────────────────────────────────

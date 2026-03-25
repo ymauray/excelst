@@ -25,7 +25,7 @@ public class VariableTests
         var prog = Parse("let x = \"Bonjour\"");
         var stmt = Assert.IsType<LetStatement>(Assert.Single(prog.Statements));
         Assert.Equal("x", stmt.Name);
-        Assert.Equal("Bonjour", Assert.IsType<StringValue>(stmt.Value).Content);
+        Assert.Equal("Bonjour", Assert.IsType<StringValue>(Assert.IsType<LiteralExpr>(stmt.Initializer).Val).Content);
     }
 
     [Fact]
@@ -33,7 +33,7 @@ public class VariableTests
     {
         var prog = Parse("let n = 42");
         var stmt = Assert.IsType<LetStatement>(Assert.Single(prog.Statements));
-        Assert.Equal(42L, Assert.IsType<IntegerValue>(stmt.Value).Content);
+        Assert.Equal(42L, Assert.IsType<IntegerValue>(Assert.IsType<LiteralExpr>(stmt.Initializer).Val).Content);
     }
 
     [Fact]
@@ -41,16 +41,16 @@ public class VariableTests
     {
         var prog = Parse("let pi = 3.14");
         var stmt = Assert.IsType<LetStatement>(Assert.Single(prog.Statements));
-        Assert.Equal(3.14, Assert.IsType<FloatValue>(stmt.Value).Content);
+        Assert.Equal(3.14, Assert.IsType<FloatValue>(Assert.IsType<LiteralExpr>(stmt.Initializer).Val).Content);
     }
 
     [Fact]
-    public void Cell_avec_variable_produit_VariableValue()
+    public void Cell_avec_variable_produit_VariableExpr()
     {
         var prog = Parse("sheets.add(\"A\")\nsheet(\"A\", { cell(\"A1\", x) })");
         var block = Assert.IsType<SheetBlock>(prog.Statements[1]);
         var cell = Assert.IsType<CellStatement>(Assert.Single(block.Statements));
-        Assert.Equal("x", Assert.IsType<VariableValue>(cell.Value).Name);
+        Assert.Equal("x", Assert.IsType<VariableExpr>(cell.Value).Name);
     }
 
     // ── Générateur ────────────────────────────────────────────────────────────

@@ -8,29 +8,85 @@ public sealed class ExcelGenerator
 {
     private readonly XLWorkbook _workbook = new();
     private readonly HashSet<string> _declaredSheets = new();
-    private readonly Dictionary<string, Value> _variables = new();
+
+    // ── Scope ─────────────────────────────────────────────────────────────────
+
+    private sealed class Scope(Scope? parent = null)
+    {
+        private readonly Dictionary<string, (Value Value, bool Mutable)> _vars = new();
+
+        public void Define(string name, Value value, bool mutable, Token token)
+        {
+            if (_vars.ContainsKey(name))
+                throw new GeneratorException(
+                    $"La variable '{name}' est déjà définie (ligne {token.Line})");
+            _vars[name] = (value, mutable);
+        }
+
+        public Value Get(string name, Token token)
+        {
+            if (_vars.TryGetValue(name, out var entry)) return entry.Value;
+            if (parent is not null) return parent.Get(name, token);
+            throw new GeneratorException(
+                $"Variable '{name}' non définie (ligne {token.Line})");
+        }
+
+        public void Set(string name, Value value, Token token)
+        {
+            if (_vars.TryGetValue(name, out var entry))
+            {
+                if (!entry.Mutable)
+                    throw new GeneratorException(
+                        $"La variable '{name}' est immutable (let) — " +
+                        $"utilisez 'var' pour une variable mutable (ligne {token.Line})");
+                _vars[name] = (value, true);
+                return;
+            }
+            if (parent is not null) { parent.Set(name, value, token); return; }
+            throw new GeneratorException(
+                $"Variable '{name}' non définie (ligne {token.Line})");
+        }
+    }
+
+    // ── Generate ──────────────────────────────────────────────────────────────
 
     public XLWorkbook Generate(Programme programme)
     {
-        foreach (var statement in programme.Statements)
-            Execute(statement);
+        var rootScope = new Scope();
+        foreach (var stmt in programme.Statements)
+            Execute(stmt, rootScope, ws: null);
         return _workbook;
     }
 
     // ── Dispatch ──────────────────────────────────────────────────────────────
 
-    private void Execute(TopLevelStatement stmt)
+    private void Execute(Statement stmt, Scope scope, IXLWorksheet? ws)
     {
         switch (stmt)
         {
             case LetStatement let:
-                ExecuteLet(let);
+                scope.Define(let.Name, Evaluate(let.Initializer, scope), mutable: false, let.SourceToken);
+                break;
+            case VarStatement var_:
+                scope.Define(var_.Name, Evaluate(var_.Initializer, scope), mutable: true, var_.SourceToken);
+                break;
+            case AssignStatement assign:
+                scope.Set(assign.Name, Evaluate(assign.Value, scope), assign.SourceToken);
+                break;
+            case WhileStatement while_:
+                ExecuteWhile(while_, scope, ws);
                 break;
             case SheetsAddStatement add:
                 ExecuteSheetsAdd(add);
                 break;
             case SheetBlock block:
-                ExecuteSheetBlock(block);
+                ExecuteSheetBlock(block, scope);
+                break;
+            case CellStatement cell:
+                if (ws is null)
+                    throw new GeneratorException(
+                        $"Instruction 'cell' hors d'un bloc sheet (ligne {stmt.SourceToken.Line})");
+                ExecuteCell(ws, cell, scope);
                 break;
             default:
                 throw new GeneratorException(
@@ -38,15 +94,27 @@ public sealed class ExcelGenerator
         }
     }
 
-    // ── let name = value ─────────────────────────────────────────────────────
+    // ── while condition { body } ─────────────────────────────────────────────
 
-    private void ExecuteLet(LetStatement stmt)
+    private void ExecuteWhile(WhileStatement stmt, Scope scope, IXLWorksheet? ws)
     {
-        if (_variables.ContainsKey(stmt.Name))
-            throw new GeneratorException(
-                $"La variable '{stmt.Name}' est déjà définie (ligne {stmt.SourceToken.Line})");
+        const int maxIterations = 100_000;
+        int count = 0;
+        while (true)
+        {
+            if (Evaluate(stmt.Condition, scope) is not BoolValue b)
+                throw new GeneratorException(
+                    $"La condition du while doit être booléenne (ligne {stmt.SourceToken.Line})");
+            if (!b.Content) break;
 
-        _variables[stmt.Name] = ResolveEager(stmt.Value, stmt.SourceToken);
+            if (++count > maxIterations)
+                throw new GeneratorException(
+                    $"Boucle while dépassant {maxIterations} itérations (ligne {stmt.SourceToken.Line})");
+
+            var loopScope = new Scope(scope);
+            foreach (var s in stmt.Body)
+                Execute(s, loopScope, ws);
+        }
     }
 
     // ── sheets.add("name", after: "other") ───────────────────────────────────
@@ -73,7 +141,7 @@ public sealed class ExcelGenerator
 
     // ── sheet("name", { ... }) ────────────────────────────────────────────────
 
-    private void ExecuteSheetBlock(SheetBlock block)
+    private void ExecuteSheetBlock(SheetBlock block, Scope scope)
     {
         if (!_declaredSheets.Contains(block.Name))
             throw new GeneratorException(
@@ -85,80 +153,172 @@ public sealed class ExcelGenerator
                 $"sheet : feuille '{block.Name}' introuvable dans le classeur " +
                 $"(ligne {block.SourceToken.Line})");
 
+        var sheetScope = new Scope(scope);
         foreach (var inner in block.Statements)
-            ExecuteInner(ws, inner);
+            Execute(inner, sheetScope, ws);
     }
 
-    // ── Inner statements ──────────────────────────────────────────────────────
+    // ── cell(address_expr, value_expr) ────────────────────────────────────────
 
-    private void ExecuteInner(IXLWorksheet ws, InnerStatement stmt)
+    private void ExecuteCell(IXLWorksheet ws, CellStatement stmt, Scope scope)
     {
-        switch (stmt)
-        {
-            case CellStatement cell:
-                ExecuteCell(ws, cell);
-                break;
-            default:
-                throw new GeneratorException(
-                    $"Instruction non supportée à la ligne {stmt.SourceToken.Line}");
-        }
-    }
+        if (Evaluate(stmt.Address, scope) is not StringValue addrStr)
+            throw new GeneratorException(
+                $"L'adresse de cellule doit être une chaîne (ligne {stmt.SourceToken.Line})");
 
-    // ── cell("A1", value) ─────────────────────────────────────────────────────
-
-    private void ExecuteCell(IXLWorksheet ws, CellStatement stmt)
-    {
-        ws.Cell(stmt.Address).Value = Resolve(stmt.Value, stmt.SourceToken) switch
+        ws.Cell(addrStr.Content).Value = Evaluate(stmt.Value, scope) switch
         {
             StringValue  s => XLCellValue.FromObject(s.Content),
             IntegerValue i => XLCellValue.FromObject(i.Content),
             FloatValue   f => XLCellValue.FromObject(f.Content),
+            BoolValue    b => XLCellValue.FromObject(b.Content),
             ArrayValue   _ => throw new GeneratorException(
-                     $"Impossible d'écrire un tableau dans la cellule '{stmt.Address}' " +
+                     $"Impossible d'écrire un tableau dans la cellule '{addrStr.Content}' " +
                      $"(ligne {stmt.SourceToken.Line})"),
             _ => throw new GeneratorException(
                      $"Type de valeur non supporté à la ligne {stmt.SourceToken.Line}")
         };
     }
 
-    // ── Résolution des valeurs ────────────────────────────────────────────────
+    // ── Evaluation ────────────────────────────────────────────────────────────
 
-    // Résolution eager : résout récursivement les items d'un tableau à la définition.
-    private Value ResolveEager(Value value, Token sourceToken)
+    private Value Evaluate(Expression expr, Scope scope) => expr switch
     {
-        var resolved = Resolve(value, sourceToken);
-        return resolved is ArrayValue arr
-            ? new ArrayValue(arr.Items.Select(item => ResolveEager(item, sourceToken)).ToList())
-            : resolved;
-    }
-
-    private Value Resolve(Value value, Token sourceToken) => value switch
-    {
-        VariableValue v when _variables.TryGetValue(v.Name, out var inner)
-            => Resolve(inner, sourceToken),
-        VariableValue v
-            => throw new GeneratorException(
-                   $"Variable '{v.Name}' non définie (ligne {sourceToken.Line})"),
-        ArrayAccessValue a
-            => ResolveArrayAccess(a, sourceToken),
-        _ => value
+        LiteralExpr lit      => lit.Val,
+        VariableExpr v       => scope.Get(v.Name, v.SourceToken),
+        ArrayLiteralExpr arr => new ArrayValue(arr.Items.Select(item => Evaluate(item, scope)).ToList()),
+        ArrayAccessExpr a    => EvaluateArrayAccess(a, scope),
+        BinaryExpr bin       => EvaluateBinary(bin, scope),
+        UnaryExpr u          => EvaluateUnary(u, scope),
+        _ => throw new GeneratorException(
+                 $"Expression non supportée à la ligne {expr.SourceToken.Line}")
     };
 
-    private Value ResolveArrayAccess(ArrayAccessValue access, Token sourceToken)
+    private Value EvaluateArrayAccess(ArrayAccessExpr access, Scope scope)
     {
-        if (!_variables.TryGetValue(access.Name, out var val))
+        if (scope.Get(access.Name, access.SourceToken) is not ArrayValue arr)
             throw new GeneratorException(
-                $"Variable '{access.Name}' non définie (ligne {sourceToken.Line})");
+                $"'{access.Name}' n'est pas un tableau (ligne {access.SourceToken.Line})");
 
-        if (Resolve(val, sourceToken) is not ArrayValue arr)
+        if (Evaluate(access.Index, scope) is not IntegerValue idx)
             throw new GeneratorException(
-                $"'{access.Name}' n'est pas un tableau (ligne {sourceToken.Line})");
+                $"L'index du tableau doit être un entier (ligne {access.SourceToken.Line})");
 
-        if (access.Index < 0 || access.Index >= arr.Items.Count)
+        if (idx.Content < 0 || idx.Content >= arr.Items.Count)
             throw new GeneratorException(
-                $"Index {access.Index} hors limites pour '{access.Name}' " +
-                $"(taille : {arr.Items.Count}, ligne {sourceToken.Line})");
+                $"Index {idx.Content} hors limites pour '{access.Name}' " +
+                $"(taille : {arr.Items.Count}, ligne {access.SourceToken.Line})");
 
-        return Resolve(arr.Items[access.Index], sourceToken);
+        return arr.Items[(int)idx.Content];
+    }
+
+    private Value EvaluateBinary(BinaryExpr expr, Scope scope)
+    {
+        var left  = Evaluate(expr.Left,  scope);
+        var right = Evaluate(expr.Right, scope);
+
+        return expr.Op switch
+        {
+            BinaryOp.Add => (left, right) switch
+            {
+                (IntegerValue l, IntegerValue r) => new IntegerValue(l.Content + r.Content),
+                (FloatValue   l, FloatValue   r) => new FloatValue(l.Content + r.Content),
+                (IntegerValue l, FloatValue   r) => new FloatValue(l.Content + r.Content),
+                (FloatValue   l, IntegerValue r) => new FloatValue(l.Content + r.Content),
+                (StringValue  l, StringValue  r) => new StringValue(l.Content + r.Content),
+                (StringValue  l, IntegerValue r) => new StringValue(l.Content + r.Content.ToString()),
+                (StringValue  l, FloatValue   r) => new StringValue(l.Content + r.Content.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                _ => throw new GeneratorException(
+                         $"Opérandes incompatibles pour '+' (ligne {expr.SourceToken.Line})")
+            },
+            BinaryOp.Sub => (left, right) switch
+            {
+                (IntegerValue l, IntegerValue r) => new IntegerValue(l.Content - r.Content),
+                (FloatValue   l, FloatValue   r) => new FloatValue(l.Content - r.Content),
+                (IntegerValue l, FloatValue   r) => new FloatValue(l.Content - r.Content),
+                (FloatValue   l, IntegerValue r) => new FloatValue(l.Content - r.Content),
+                _ => throw new GeneratorException(
+                         $"Opérandes incompatibles pour '-' (ligne {expr.SourceToken.Line})")
+            },
+            BinaryOp.Mul => (left, right) switch
+            {
+                (IntegerValue l, IntegerValue r) => new IntegerValue(l.Content * r.Content),
+                (FloatValue   l, FloatValue   r) => new FloatValue(l.Content * r.Content),
+                (IntegerValue l, FloatValue   r) => new FloatValue(l.Content * r.Content),
+                (FloatValue   l, IntegerValue r) => new FloatValue(l.Content * r.Content),
+                _ => throw new GeneratorException(
+                         $"Opérandes incompatibles pour '*' (ligne {expr.SourceToken.Line})")
+            },
+            BinaryOp.Div => (left, right) switch
+            {
+                (IntegerValue l, IntegerValue r) => r.Content == 0
+                    ? throw new GeneratorException($"Division par zéro (ligne {expr.SourceToken.Line})")
+                    : new IntegerValue(l.Content / r.Content),
+                (FloatValue   l, FloatValue   r) => new FloatValue(l.Content / r.Content),
+                (IntegerValue l, FloatValue   r) => new FloatValue(l.Content / r.Content),
+                (FloatValue   l, IntegerValue r) => new FloatValue(l.Content / r.Content),
+                _ => throw new GeneratorException(
+                         $"Opérandes incompatibles pour '/' (ligne {expr.SourceToken.Line})")
+            },
+            BinaryOp.Lt   => CompareNumeric(left, right, expr, (a, b) => a <  b),
+            BinaryOp.Gt   => CompareNumeric(left, right, expr, (a, b) => a >  b),
+            BinaryOp.LtEq => CompareNumeric(left, right, expr, (a, b) => a <= b),
+            BinaryOp.GtEq => CompareNumeric(left, right, expr, (a, b) => a >= b),
+            BinaryOp.EqEq  => new BoolValue(ValuesEqual(left, right)),
+            BinaryOp.NotEq => new BoolValue(!ValuesEqual(left, right)),
+            _ => throw new GeneratorException(
+                     $"Opérateur non supporté (ligne {expr.SourceToken.Line})")
+        };
+    }
+
+    private static BoolValue CompareNumeric(Value left, Value right, BinaryExpr expr,
+        Func<double, double, bool> op)
+    {
+        double l = left switch
+        {
+            IntegerValue i => i.Content,
+            FloatValue   f => f.Content,
+            _ => throw new GeneratorException(
+                     $"Comparaison numérique impossible sur ce type " +
+                     $"(ligne {expr.SourceToken.Line})")
+        };
+        double r = right switch
+        {
+            IntegerValue i => i.Content,
+            FloatValue   f => f.Content,
+            _ => throw new GeneratorException(
+                     $"Comparaison numérique impossible sur ce type " +
+                     $"(ligne {expr.SourceToken.Line})")
+        };
+        return new BoolValue(op(l, r));
+    }
+
+    private static bool ValuesEqual(Value left, Value right) => (left, right) switch
+    {
+        (IntegerValue l, IntegerValue r) => l.Content == r.Content,
+        (FloatValue   l, FloatValue   r) => l.Content == r.Content,
+        (IntegerValue l, FloatValue   r) => l.Content == r.Content,
+        (FloatValue   l, IntegerValue r) => l.Content == r.Content,
+        (StringValue  l, StringValue  r) => l.Content == r.Content,
+        (BoolValue    l, BoolValue    r) => l.Content == r.Content,
+        _ => false
+    };
+
+    private Value EvaluateUnary(UnaryExpr expr, Scope scope)
+    {
+        var operand = Evaluate(expr.Operand, scope);
+        return expr.Op switch
+        {
+            UnaryOp.Neg => operand switch
+            {
+                IntegerValue i => new IntegerValue(-i.Content),
+                FloatValue   f => new FloatValue(-f.Content),
+                _ => throw new GeneratorException(
+                         $"Négation impossible sur ce type " +
+                         $"(ligne {expr.SourceToken.Line})")
+            },
+            _ => throw new GeneratorException(
+                     $"Opérateur unaire non supporté (ligne {expr.SourceToken.Line})")
+        };
     }
 }

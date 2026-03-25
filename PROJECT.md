@@ -21,7 +21,13 @@ L'idée centrale : le fichier `.exl` est la source de vérité, versionnable et 
 - [x] Types de valeurs : chaîne (`"texte"`), entier (`42`), décimal (`3.14`)
 - [x] Variables — `let x = valeur` (top-level, portée globale, immutables, résolution eager)
 - [x] Tableaux — littéraux `(1, "a", 3.14)`, tableau vide `()`, un élément `(x,)`, accès `arr.at(0)`
-- [x] Tests unitaires — 61 tests (lexer, parser, générateur, variables, tableaux) dans `tests/excelst.Tests`
+- [x] Variables mutables — `var x = expr` (mutable, réassignable via `x = expr`)
+- [x] Boucles `while condition { body }` — avec garde anti-boucle infinie (100 000 itérations)
+- [x] Expressions arithmétiques — `+`, `-`, `*`, `/` avec précédence correcte
+- [x] Expressions de comparaison — `<`, `>`, `<=`, `>=`, `==`, `!=`
+- [x] Négation unaire — `-expr`
+- [x] Concaténation de chaînes — `"texte" + variable`
+- [x] Tests unitaires — 77 tests (lexer, parser, générateur, variables, tableaux, var/while/expressions) dans `tests/excelst.Tests`
 - [x] Binaire autonome — `dotnet publish` produit un exe single-file auto-détectant la plateforme
 
 ### Syntaxe `.exl` (actuelle)
@@ -56,6 +62,41 @@ sheet("AutreFeuille", {
 - Commentaires sur une ligne : `// ...`
 - Chaînes entre guillemets doubles
 - Types de valeurs : `"texte"`, entier (`42`), décimal (`3.14`)
+
+### Syntaxe `.exl` (actuelle)
+
+```
+// Variables immutables (let) et mutables (var)
+let titre = "Poste"
+var n = 0
+
+// Réassignation d'une variable mutable
+n = n + 1
+
+// Boucle while
+while n < 10 {
+    n = n + 1
+}
+
+// Expressions arithmétiques et comparaisons
+let total = 3 + 4 * 2        // 11 (précédence correcte)
+let addr  = "A" + n          // concaténation
+
+// Tableaux (inchangés)
+let arr = (1, "a", 3.14)
+let seul = (42,)
+let vide = ()
+
+// Feuilles et cellules (inchangés)
+sheets.add("Feuille")
+sheet("Feuille", {
+    cell("A1", titre)
+    while n < 5 {
+        cell("A" + n, n)
+        n = n + 1
+    }
+})
+```
 
 ### À faire
 

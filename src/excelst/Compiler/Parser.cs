@@ -6,7 +6,8 @@ public sealed class Parser(IReadOnlyList<Token> tokens)
 {
     private int _pos = 0;
 
-    private Token Current => tokens[_pos];
+    private Token Current   => tokens[_pos];
+    private Token LookAhead => _pos + 1 < tokens.Count ? tokens[_pos + 1] : tokens[^1];
 
     private Token Consume()
     {
@@ -37,39 +38,83 @@ public sealed class Parser(IReadOnlyList<Token> tokens)
 
     public Programme Parse()
     {
-        var statements = new List<TopLevelStatement>();
+        var statements = new List<Statement>();
         while (Current.Kind != TokenKind.Eof)
-            statements.Add(ParseTopLevelStatement());
+            statements.Add(ParseStatement(insideSheet: false));
         return new Programme(statements);
     }
 
-    private TopLevelStatement ParseTopLevelStatement()
+    private Statement ParseStatement(bool insideSheet)
     {
         if (Current.Kind != TokenKind.Identifier)
             throw new ParseException(
                 $"Instruction attendue mais trouvé '{Current.Value}' " +
                 $"à la ligne {Current.Line}, colonne {Current.Column}");
 
+        // Assignment: name = expr  (lookahead for '=')
+        if (LookAhead.Kind == TokenKind.Assign)
+            return ParseAssignStatement();
+
         return Current.Value switch
         {
-            "let"    => ParseLetStatement(),
-            "sheets" => ParseSheetsAdd(),
-            "sheet"  => ParseSheetBlock(),
+            "let"   => ParseLetStatement(),
+            "var"   => ParseVarStatement(),
+            "while" => ParseWhileStatement(insideSheet),
+            "sheets" when !insideSheet => ParseSheetsAdd(),
+            "sheet"  when !insideSheet => ParseSheetBlock(),
+            "cell"   when  insideSheet => ParseCellStatement(),
             _ => throw new ParseException(
                      $"Instruction inconnue '{Current.Value}' " +
-                     $"à la ligne {Current.Line}, colonne {Current.Column}")
+                     $"(ligne {Current.Line}, colonne {Current.Column})")
         };
     }
 
-    // ── let name = value ─────────────────────────────────────────────────────
+    // ── let name = expr ───────────────────────────────────────────────────────
 
     private LetStatement ParseLetStatement()
     {
         var sourceToken = ExpectIdentifier("let");
-        var nameToken = Expect(TokenKind.Identifier);
-        Expect(TokenKind.Equals);
-        var value = ParseValue();
-        return new LetStatement(nameToken.Value, value, sourceToken);
+        var nameToken   = Expect(TokenKind.Identifier);
+        Expect(TokenKind.Assign);
+        var initializer = ParseExpression();
+        return new LetStatement(nameToken.Value, initializer, sourceToken);
+    }
+
+    // ── var name = expr ───────────────────────────────────────────────────────
+
+    private VarStatement ParseVarStatement()
+    {
+        var sourceToken = ExpectIdentifier("var");
+        var nameToken   = Expect(TokenKind.Identifier);
+        Expect(TokenKind.Assign);
+        var initializer = ParseExpression();
+        return new VarStatement(nameToken.Value, initializer, sourceToken);
+    }
+
+    // ── name = expr ───────────────────────────────────────────────────────────
+
+    private AssignStatement ParseAssignStatement()
+    {
+        var nameToken   = Expect(TokenKind.Identifier);
+        Expect(TokenKind.Assign);
+        var value = ParseExpression();
+        return new AssignStatement(nameToken.Value, value, nameToken);
+    }
+
+    // ── while condition { body } ─────────────────────────────────────────────
+
+    private WhileStatement ParseWhileStatement(bool insideSheet)
+    {
+        var sourceToken = ExpectIdentifier("while");
+        var condition   = ParseExpression();
+        Expect(TokenKind.LBrace);
+
+        var body = new List<Statement>();
+        while (Current.Kind != TokenKind.RBrace && Current.Kind != TokenKind.Eof)
+            body.Add(ParseStatement(insideSheet));
+
+        Expect(TokenKind.RBrace);
+        return new WhileStatement(condition, body, sourceToken);
     }
 
     // ── sheets.add("name", after: "other") ───────────────────────────────────
@@ -110,9 +155,9 @@ public sealed class Parser(IReadOnlyList<Token> tokens)
         Expect(TokenKind.Comma);
         Expect(TokenKind.LBrace);
 
-        var inner = new List<InnerStatement>();
+        var inner = new List<Statement>();
         while (Current.Kind != TokenKind.RBrace && Current.Kind != TokenKind.Eof)
-            inner.Add(ParseInnerStatement());
+            inner.Add(ParseStatement(insideSheet: true));
 
         Expect(TokenKind.RBrace);
         Expect(TokenKind.RParen);
@@ -120,67 +165,142 @@ public sealed class Parser(IReadOnlyList<Token> tokens)
         return new SheetBlock(nameToken.Value, inner, sourceToken);
     }
 
-    // ── Inner statements ──────────────────────────────────────────────────────
-
-    private InnerStatement ParseInnerStatement()
-    {
-        if (Current.Kind == TokenKind.Identifier && Current.Value == "cell")
-            return ParseCellStatement();
-
-        throw new ParseException(
-            $"Instruction inconnue '{Current.Value}' dans un bloc sheet " +
-            $"à la ligne {Current.Line}, colonne {Current.Column}");
-    }
-
-    // ── cell("A1", value) ─────────────────────────────────────────────────────
+    // ── cell(address_expr, value_expr) ────────────────────────────────────────
 
     private CellStatement ParseCellStatement()
     {
         var sourceToken = ExpectIdentifier("cell");
         Expect(TokenKind.LParen);
-        var address = Expect(TokenKind.String);
+        var address = ParseExpression();
         Expect(TokenKind.Comma);
-        var value = ParseValue();
+        var value = ParseExpression();
         Expect(TokenKind.RParen);
-
-        return new CellStatement(address.Value, value, sourceToken);
+        return new CellStatement(address, value, sourceToken);
     }
 
-    // ── Values ────────────────────────────────────────────────────────────────
+    // ── Expression precedence ─────────────────────────────────────────────────
+    // ParseExpression → ParseComparison → ParseAddition → ParseMultiplication
+    //                 → ParseUnary → ParsePrimary
 
-    // identifier        → VariableValue
-    // identifier.at(n)  → ArrayAccessValue
-    private Value ParseIdentifierValue()
+    private Expression ParseExpression() => ParseComparison();
+
+    private Expression ParseComparison()
+    {
+        var left = ParseAddition();
+        while (Current.Kind is TokenKind.Less or TokenKind.Greater
+                              or TokenKind.LessEq or TokenKind.GreaterEq
+                              or TokenKind.EqEq or TokenKind.BangEq)
+        {
+            var opToken = Consume();
+            var op = opToken.Kind switch
+            {
+                TokenKind.Less      => BinaryOp.Lt,
+                TokenKind.Greater   => BinaryOp.Gt,
+                TokenKind.LessEq    => BinaryOp.LtEq,
+                TokenKind.GreaterEq => BinaryOp.GtEq,
+                TokenKind.EqEq      => BinaryOp.EqEq,
+                TokenKind.BangEq    => BinaryOp.NotEq,
+                _ => throw new InvalidOperationException()
+            };
+            left = new BinaryExpr(left, op, ParseAddition(), opToken);
+        }
+        return left;
+    }
+
+    private Expression ParseAddition()
+    {
+        var left = ParseMultiplication();
+        while (Current.Kind is TokenKind.Plus or TokenKind.Minus)
+        {
+            var opToken = Consume();
+            var op = opToken.Kind == TokenKind.Plus ? BinaryOp.Add : BinaryOp.Sub;
+            left = new BinaryExpr(left, op, ParseMultiplication(), opToken);
+        }
+        return left;
+    }
+
+    private Expression ParseMultiplication()
+    {
+        var left = ParseUnary();
+        while (Current.Kind is TokenKind.Star or TokenKind.Slash)
+        {
+            var opToken = Consume();
+            var op = opToken.Kind == TokenKind.Star ? BinaryOp.Mul : BinaryOp.Div;
+            left = new BinaryExpr(left, op, ParseUnary(), opToken);
+        }
+        return left;
+    }
+
+    private Expression ParseUnary()
+    {
+        if (Current.Kind == TokenKind.Minus)
+        {
+            var opToken = Consume();
+            return new UnaryExpr(UnaryOp.Neg, ParseUnary(), opToken);
+        }
+        return ParsePrimary();
+    }
+
+    private Expression ParsePrimary()
+    {
+        var token = Current;
+        switch (token.Kind)
+        {
+            case TokenKind.String:
+                Consume();
+                return new LiteralExpr(new StringValue(token.Value), token);
+            case TokenKind.Integer:
+                Consume();
+                return new LiteralExpr(new IntegerValue(long.Parse(token.Value)), token);
+            case TokenKind.Float:
+                Consume();
+                return new LiteralExpr(
+                    new FloatValue(double.Parse(token.Value,
+                        System.Globalization.CultureInfo.InvariantCulture)), token);
+            case TokenKind.LParen:
+                return ParseArrayOrParenExpr();
+            case TokenKind.Identifier:
+                return ParseIdentifierExpr();
+            default:
+                throw new ParseException(
+                    $"Expression attendue mais trouvé '{token.Value}' " +
+                    $"à la ligne {token.Line}, colonne {token.Column}");
+        }
+    }
+
+    // identifier        → VariableExpr
+    // identifier.at(n)  → ArrayAccessExpr
+    private Expression ParseIdentifierExpr()
     {
         var nameToken = Expect(TokenKind.Identifier);
 
         if (Current.Kind != TokenKind.Dot)
-            return new VariableValue(nameToken.Value);
+            return new VariableExpr(nameToken.Value, nameToken);
 
         Consume(); // '.'
         ExpectIdentifier("at");
         Expect(TokenKind.LParen);
-        var indexToken = Expect(TokenKind.Integer);
+        var index = ParseExpression();
         Expect(TokenKind.RParen);
 
-        return new ArrayAccessValue(nameToken.Value, int.Parse(indexToken.Value));
+        return new ArrayAccessExpr(nameToken.Value, index, nameToken);
     }
 
-    // ()       → ArrayValue([])
-    // (x,)     → ArrayValue([x])
-    // (x, y)   → ArrayValue([x, y])
-    // (x)      → x  (expression parenthésée, pas un tableau)
-    private Value ParseArrayLiteral()
+    // ()       → ArrayLiteralExpr([])
+    // (x,)     → ArrayLiteralExpr([x])
+    // (x, y)   → ArrayLiteralExpr([x, y])
+    // (x)      → x  (parenthesized expression, not an array)
+    private Expression ParseArrayOrParenExpr()
     {
-        Expect(TokenKind.LParen);
+        var sourceToken = Expect(TokenKind.LParen);
 
         if (Current.Kind == TokenKind.RParen)
         {
             Consume();
-            return new ArrayValue([]);
+            return new ArrayLiteralExpr([], sourceToken);
         }
 
-        var first = ParseValue();
+        var first = ParseExpression();
 
         if (Current.Kind == TokenKind.RParen)
         {
@@ -193,41 +313,19 @@ public sealed class Parser(IReadOnlyList<Token> tokens)
         if (Current.Kind == TokenKind.RParen)
         {
             Consume();
-            return new ArrayValue([first]); // (x,)
+            return new ArrayLiteralExpr([first], sourceToken); // (x,)
         }
 
-        var items = new List<Value> { first };
+        var items = new List<Expression> { first };
         while (true)
         {
-            items.Add(ParseValue());
+            items.Add(ParseExpression());
             if (Current.Kind != TokenKind.Comma) break;
             Consume(); // ','
             if (Current.Kind == TokenKind.RParen) break; // trailing comma
         }
 
         Expect(TokenKind.RParen);
-        return new ArrayValue(items);
-    }
-
-    private Value ParseValue()
-    {
-        switch (Current.Kind)
-        {
-            case TokenKind.String:
-                return new StringValue(Consume().Value);
-            case TokenKind.Integer:
-                return new IntegerValue(long.Parse(Consume().Value));
-            case TokenKind.Float:
-                return new FloatValue(double.Parse(Consume().Value,
-                           System.Globalization.CultureInfo.InvariantCulture));
-            case TokenKind.LParen:
-                return ParseArrayLiteral();
-            case TokenKind.Identifier:
-                return ParseIdentifierValue();
-            default:
-                throw new ParseException(
-                    $"Valeur attendue (texte, entier, décimal, tableau ou variable) " +
-                    $"mais trouvé '{Current.Value}' à la ligne {Current.Line}, colonne {Current.Column}");
-        }
+        return new ArrayLiteralExpr(items, sourceToken);
     }
 }

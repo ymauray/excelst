@@ -9,6 +9,7 @@ public sealed class Lexer(string source)
     private int _col = 1;
 
     private char Current => _pos < source.Length ? source[_pos] : '\0';
+    private char Peek    => _pos + 1 < source.Length ? source[_pos + 1] : '\0';
     private bool IsAtEnd => _pos >= source.Length;
 
     public List<Token> Tokenize()
@@ -23,17 +24,24 @@ public sealed class Lexer(string source)
             var (line, col) = (_line, _col);
             var ch = Current;
 
-            if (ch == '"')
-                tokens.Add(ReadString(line, col));
-            else if (char.IsDigit(ch))
-                tokens.Add(ReadNumber(line, col));
-            else if (char.IsLetter(ch) || ch == '_')
-                tokens.Add(ReadIdentifier(line, col));
+            if      (ch == '"')                        tokens.Add(ReadString(line, col));
+            else if (char.IsDigit(ch))                 tokens.Add(ReadNumber(line, col));
+            else if (char.IsLetter(ch) || ch == '_')   tokens.Add(ReadIdentifier(line, col));
+            else if (ch == '<' && Peek == '=')         tokens.Add(ReadTwo(TokenKind.LessEq,    "<=", line, col));
+            else if (ch == '>' && Peek == '=')         tokens.Add(ReadTwo(TokenKind.GreaterEq, ">=", line, col));
+            else if (ch == '=' && Peek == '=')         tokens.Add(ReadTwo(TokenKind.EqEq,      "==", line, col));
+            else if (ch == '!' && Peek == '=')         tokens.Add(ReadTwo(TokenKind.BangEq,    "!=", line, col));
             else
             {
                 var kind = ch switch
                 {
-                    '=' => TokenKind.Equals,
+                    '=' => TokenKind.Assign,
+                    '<' => TokenKind.Less,
+                    '>' => TokenKind.Greater,
+                    '+' => TokenKind.Plus,
+                    '-' => TokenKind.Minus,
+                    '*' => TokenKind.Star,
+                    '/' => TokenKind.Slash,
                     '.' => TokenKind.Dot,
                     '(' => TokenKind.LParen,
                     ')' => TokenKind.RParen,
@@ -53,17 +61,16 @@ public sealed class Lexer(string source)
         return tokens;
     }
 
+    private Token ReadTwo(TokenKind kind, string lexeme, int line, int col)
+    {
+        Advance(); Advance();
+        return new Token(kind, lexeme, line, col);
+    }
+
     private void Advance()
     {
-        if (_pos < source.Length && source[_pos] == '\n')
-        {
-            _line++;
-            _col = 1;
-        }
-        else
-        {
-            _col++;
-        }
+        if (_pos < source.Length && source[_pos] == '\n') { _line++; _col = 1; }
+        else _col++;
         _pos++;
     }
 
@@ -73,9 +80,8 @@ public sealed class Lexer(string source)
         {
             if (char.IsWhiteSpace(Current))
                 Advance();
-            else if (Current == '/' && _pos + 1 < source.Length && source[_pos + 1] == '/')
-                while (!IsAtEnd && Current != '\n')
-                    Advance();
+            else if (Current == '/' && Peek == '/')
+                while (!IsAtEnd && Current != '\n') Advance();
             else
                 break;
         }
@@ -83,7 +89,7 @@ public sealed class Lexer(string source)
 
     private Token ReadString(int line, int col)
     {
-        Advance(); // consume opening "
+        Advance(); // "
         var sb = new System.Text.StringBuilder();
         while (!IsAtEnd && Current != '"')
         {
@@ -96,27 +102,18 @@ public sealed class Lexer(string source)
         if (IsAtEnd)
             throw new LexerException(
                 $"Chaîne non terminée débutant à la ligne {line}, colonne {col}");
-        Advance(); // consume closing "
+        Advance(); // "
         return new Token(TokenKind.String, sb.ToString(), line, col);
     }
 
     private Token ReadNumber(int line, int col)
     {
         var sb = new System.Text.StringBuilder();
-        while (!IsAtEnd && char.IsDigit(Current))
+        while (!IsAtEnd && char.IsDigit(Current)) { sb.Append(Current); Advance(); }
+        if (!IsAtEnd && Current == '.' && char.IsDigit(Peek))
         {
-            sb.Append(Current);
-            Advance();
-        }
-        if (!IsAtEnd && Current == '.' && _pos + 1 < source.Length && char.IsDigit(source[_pos + 1]))
-        {
-            sb.Append(Current);
-            Advance();
-            while (!IsAtEnd && char.IsDigit(Current))
-            {
-                sb.Append(Current);
-                Advance();
-            }
+            sb.Append(Current); Advance();
+            while (!IsAtEnd && char.IsDigit(Current)) { sb.Append(Current); Advance(); }
             return new Token(TokenKind.Float, sb.ToString(), line, col);
         }
         return new Token(TokenKind.Integer, sb.ToString(), line, col);
@@ -127,8 +124,7 @@ public sealed class Lexer(string source)
         var sb = new System.Text.StringBuilder();
         while (!IsAtEnd && (char.IsLetterOrDigit(Current) || Current == '_'))
         {
-            sb.Append(Current);
-            Advance();
+            sb.Append(Current); Advance();
         }
         return new Token(TokenKind.Identifier, sb.ToString(), line, col);
     }

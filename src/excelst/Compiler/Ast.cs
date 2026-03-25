@@ -1,50 +1,98 @@
 namespace Excelst.Compiler;
 
-// ── Values ────────────────────────────────────────────────────────────────────
+// ── Runtime values (sortie du générateur) ─────────────────────────────────────
 
 public abstract record Value;
 public sealed record StringValue(string Content) : Value;
 public sealed record IntegerValue(long Content) : Value;
 public sealed record FloatValue(double Content) : Value;
-public sealed record VariableValue(string Name) : Value;
+public sealed record BoolValue(bool Content) : Value;
 public sealed record ArrayValue(IReadOnlyList<Value> Items) : Value;
-public sealed record ArrayAccessValue(string Name, int Index) : Value;
 
-// ── Inner statements (inside a sheet block) ───────────────────────────────────
+// ── Opérateurs ────────────────────────────────────────────────────────────────
 
-public abstract record InnerStatement(Token SourceToken);
+public enum BinaryOp { Add, Sub, Mul, Div, Lt, Gt, LtEq, GtEq, EqEq, NotEq }
+public enum UnaryOp  { Neg }
 
-public sealed record CellStatement(
-    string Address,
-    Value Value,
+// ── Expressions (nœuds AST — sortie du parser) ────────────────────────────────
+
+public abstract record Expression(Token SourceToken);
+
+public sealed record LiteralExpr(Value Val, Token SourceToken)
+    : Expression(SourceToken);
+
+public sealed record VariableExpr(string Name, Token SourceToken)
+    : Expression(SourceToken);
+
+public sealed record ArrayLiteralExpr(
+    IReadOnlyList<Expression> Items,
     Token SourceToken
-) : InnerStatement(SourceToken);
+) : Expression(SourceToken);
 
-// ── Top-level statements ──────────────────────────────────────────────────────
+public sealed record ArrayAccessExpr(
+    string Name,
+    Expression Index,
+    Token SourceToken
+) : Expression(SourceToken);
 
-public abstract record TopLevelStatement(Token SourceToken);
+public sealed record BinaryExpr(
+    Expression Left,
+    BinaryOp Op,
+    Expression Right,
+    Token SourceToken
+) : Expression(SourceToken);
 
-/// <summary>let name = value — déclare une variable globale.</summary>
+public sealed record UnaryExpr(
+    UnaryOp Op,
+    Expression Operand,
+    Token SourceToken
+) : Expression(SourceToken);
+
+// ── Instructions (nœuds AST — hiérarchie unifiée) ────────────────────────────
+
+public abstract record Statement(Token SourceToken);
+
+/// <summary>let name = expr — liaison immutable.</summary>
 public sealed record LetStatement(
-    string Name,
-    Value Value,
-    Token SourceToken
-) : TopLevelStatement(SourceToken);
+    string Name, Expression Initializer, Token SourceToken
+) : Statement(SourceToken);
 
-/// <summary>sheets.add("name", after: "other") — déclare une feuille et son ordre.</summary>
+/// <summary>var name = expr — liaison mutable.</summary>
+public sealed record VarStatement(
+    string Name, Expression Initializer, Token SourceToken
+) : Statement(SourceToken);
+
+/// <summary>name = expr — réassignation d'une variable mutable.</summary>
+public sealed record AssignStatement(
+    string Name, Expression Value, Token SourceToken
+) : Statement(SourceToken);
+
+/// <summary>while condition { body }</summary>
+public sealed record WhileStatement(
+    Expression Condition,
+    IReadOnlyList<Statement> Body,
+    Token SourceToken
+) : Statement(SourceToken);
+
+/// <summary>sheets.add("name", after: "other")</summary>
 public sealed record SheetsAddStatement(
-    string Name,
-    string? After,
-    Token SourceToken
-) : TopLevelStatement(SourceToken);
+    string Name, string? After, Token SourceToken
+) : Statement(SourceToken);
 
-/// <summary>sheet("name", { ... }) — définit le contenu d'une feuille déjà déclarée.</summary>
+/// <summary>sheet("name", { ... })</summary>
 public sealed record SheetBlock(
     string Name,
-    IReadOnlyList<InnerStatement> Statements,
+    IReadOnlyList<Statement> Statements,
     Token SourceToken
-) : TopLevelStatement(SourceToken);
+) : Statement(SourceToken);
+
+/// <summary>cell(address_expr, value_expr)</summary>
+public sealed record CellStatement(
+    Expression Address,
+    Expression Value,
+    Token SourceToken
+) : Statement(SourceToken);
 
 // ── Programme ─────────────────────────────────────────────────────────────────
 
-public sealed record Programme(IReadOnlyList<TopLevelStatement> Statements);
+public sealed record Programme(IReadOnlyList<Statement> Statements);
