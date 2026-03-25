@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🛟 Support
+    url: https://github.com/ymauray/excelst/blob/HEAD/SUPPORT.md
+    about: Consultez le guide de support avant d'ouvrir une issue.
+#  - name: Signalement de violation du Code de conduite
+#    url: https://yourproject.org/community-report/
+#    about: Signalez une violation du Code de conduite en privé à l'équipe de modération.

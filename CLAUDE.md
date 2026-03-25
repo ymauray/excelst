@@ -40,7 +40,7 @@ dotnet publish src/excelst/excelst.csproj -c Release -r osx-arm64
   4. Met à jour `Formula/excelst.rb` dans `ymauray/homebrew-tap` (secret `HOMEBREW_TAP_TOKEN`)
   5. Met à jour `excelst.json` dans `ymauray/scoop-bucket` (secret `SCOOP_BUCKET_TOKEN`)
 - **Dependabot** (`.github/dependabot.yml`) — surveille les GitHub Actions et les paquets NuGet, mises à jour mensuelles groupées.
-- **Branch protection** sur `main` : le merge est bloqué si le check `Tests` échoue (configuré dans Settings → Branches).
+- **Branch protection** sur `main` : le merge est bloqué si le check `Tests` échoue (configuré dans Settings → Branches). **Ne jamais committer directement sur `main`** — toujours passer par une branche et une pull request.
 
 ## Distribution
 
