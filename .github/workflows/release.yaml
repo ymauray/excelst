@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag à simuler (ex: v0.1.1)'
+        required: true
 
 permissions:
   contents: write
@@ -26,6 +31,10 @@ jobs:
             archive: excelst-osx-arm64.tar.gz
 
     steps:
+      - name: Set release tag
+        run: echo "RELEASE_TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}" >> $GITHUB_ENV
+        shell: bash
+
       - uses: actions/checkout@v6
 
       - uses: actions/setup-dotnet@v5
@@ -63,8 +72,8 @@ jobs:
       - name: Package (.deb / .rpm)
         if: runner.os == 'Linux'
         run: |
-          VERSION=${GITHUB_REF_NAME#v} nfpm package --config nfpm.yaml --packager deb --target excelst-linux-x64.deb
-          VERSION=${GITHUB_REF_NAME#v} nfpm package --config nfpm.yaml --packager rpm --target excelst-linux-x64.rpm
+          VERSION=${RELEASE_TAG#v} nfpm package --config nfpm.yaml --packager deb --target excelst-linux-x64.deb
+          VERSION=${RELEASE_TAG#v} nfpm package --config nfpm.yaml --packager rpm --target excelst-linux-x64.rpm
 
       - uses: actions/upload-artifact@v7
         if: runner.os == 'Linux'
@@ -83,6 +92,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Set release tag
+        run: echo "RELEASE_TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}" >> $GITHUB_ENV
+
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
@@ -90,17 +102,17 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: artifacts/*
           generate_release_notes: true
 
       - name: Update Homebrew tap
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          VERSION: ${{ github.ref_name }}
         run: |
-          VERSION=${VERSION#v}
-          MACOS_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${{ github.ref_name }}/excelst-osx-arm64.tar.gz" | sha256sum | cut -d' ' -f1)
-          LINUX_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${{ github.ref_name }}/excelst-linux-x64.tar.gz" | sha256sum | cut -d' ' -f1)
+          VERSION=${RELEASE_TAG#v}
+          MACOS_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${RELEASE_TAG}/excelst-osx-arm64.tar.gz" | sha256sum | cut -d' ' -f1)
+          LINUX_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${RELEASE_TAG}/excelst-linux-x64.tar.gz" | sha256sum | cut -d' ' -f1)
 
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/ymauray/homebrew-tap.git" tap
           cd tap
@@ -123,10 +135,9 @@ jobs:
       - name: Update Scoop bucket
         env:
           SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
-          VERSION: ${{ github.ref_name }}
         run: |
-          VERSION=${VERSION#v}
-          WIN_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${{ github.ref_name }}/excelst-win-x64.zip" | sha256sum | cut -d' ' -f1)
+          VERSION=${RELEASE_TAG#v}
+          WIN_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${RELEASE_TAG}/excelst-win-x64.zip" | sha256sum | cut -d' ' -f1)
 
           git clone "https://x-access-token:${SCOOP_BUCKET_TOKEN}@github.com/ymauray/scoop-bucket.git" scoop
           cd scoop
