@@ -119,3 +119,30 @@ jobs:
           git add Formula/excelst.rb
           git diff --staged --quiet || git commit -m "bump excelst to ${VERSION}"
           git push
+
+      - name: Update Scoop bucket
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION=${VERSION#v}
+          WIN_SHA=$(curl -sL "https://github.com/ymauray/excelst/releases/download/${{ github.ref_name }}/excelst-win-x64.zip" | sha256sum | cut -d' ' -f1)
+
+          git clone "https://x-access-token:${SCOOP_BUCKET_TOKEN}@github.com/ymauray/scoop-bucket.git" scoop
+          cd scoop
+
+          VERSION=$VERSION WIN_SHA=$WIN_SHA python3 -c "
+          import json, os
+          v = os.environ['VERSION']
+          m = json.load(open('excelst.json'))
+          m['version'] = v
+          m['architecture']['64bit']['url'] = 'https://github.com/ymauray/excelst/releases/download/v' + v + '/excelst-win-x64.zip'
+          m['architecture']['64bit']['hash'] = 'sha256:' + os.environ['WIN_SHA']
+          open('excelst.json', 'w').write(json.dumps(m, indent=4) + '\n')
+          "
+
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add excelst.json
+          git diff --staged --quiet || git commit -m "bump excelst to ${VERSION}"
+          git push
