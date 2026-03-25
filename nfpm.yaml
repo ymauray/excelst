@@ -1,0 +1,14 @@
+name: excelst
+arch: amd64
+platform: linux
+version: ${VERSION}
+maintainer: Yannick Mauray
+description: CLI tool to generate Excel files from .exl source files
+homepage: https://github.com/ymauray/excelst
+license: MIT
+
+contents:
+  - src: out/excelst
+    dst: /usr/local/bin/excelst
+    file_info:
+      mode: 0755
