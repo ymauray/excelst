@@ -1,0 +1,60 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Build, Run & Test
+
+```bash
+# Build
+dotnet build excelst.slnx
+
+# Run (development)
+dotnet run --project src/excelst -- compile fichier.exl
+
+# Compile a specific file
+dotnet run --project src/excelst -- compile demo/demo.exl
+
+# Run all tests
+dotnet test excelst.slnx
+
+# Run a single test (by name filter)
+dotnet test excelst.slnx --filter "FullyQualifiedName~SheetsAdd_avec_after"
+
+# Publish a self-contained single-file binary for the current platform
+dotnet publish src/excelst/excelst.csproj -c Release
+
+# Cross-compile for another platform
+dotnet publish src/excelst/excelst.csproj -c Release -r linux-x64
+dotnet publish src/excelst/excelst.csproj -c Release -r osx-arm64
+```
+
+> Note: .NET 10 generates `excelst.slnx` (new solution format), not `excelst.sln`.
+
+## Git
+
+Commits follow the **Conventional Commits** specification:
+```
+feat: add for-loop support
+fix: handle empty sheet block correctly
+test: add parser tests for array literals
+docs: update PROJECT.md with new syntax
+chore: bump ClosedXML to 0.106
+```
+
+Common types: `feat`, `fix`, `test`, `docs`, `chore`, `refactor`.
+
+## Architecture
+
+This is a CLI tool (`excelst`) that compiles `.exl` source files into `.xlsx` Excel files — inspired by Typst's approach to PDF generation.
+
+**Entry point**: `Program.cs` — wires a `RootCommand` and registers subcommands.
+
+**Command pattern**: Each CLI subcommand lives in `src/excelst/Commands/` as a static class with a `Build()` method returning a `System.CommandLine.Command`. The command declares its arguments/options, wires a `SetAction` handler, and is added to the root command in `Program.cs`.
+
+**Excel generation**: Uses `ClosedXML` (`XLWorkbook`) to produce `.xlsx` files. Output path is always derived from the input path via `Path.ChangeExtension(input, ".xlsx")`.
+
+**Key dependency API notes** — `System.CommandLine` 2.0.5 uses a revised API (not the older beta):
+- `Command.Add(argument/option/subcommand)` instead of `AddArgument`/`AddCommand`
+- `command.SetAction((ParseResult result) => { ... })` instead of `SetHandler`
+- `result.GetValue(argument)` to retrieve parsed values
+- `rootCommand.Parse(args).InvokeAsync()` as the entry point invocation

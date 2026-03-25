@@ -1,0 +1,29 @@
+// Variables
+let titre    = "Poste"
+let montant  = "Montant"
+let loyer    = 1200
+let courses  = 350.50
+let pi       = 3.1415927
+
+// Déclaration des feuilles
+sheets.add("Budget")
+sheets.add("Détails", after: "Budget")
+sheets.add("Résumé", after: "Détails")
+
+// Contenu
+sheet("Budget", {
+    cell("A1", titre)
+    cell("B1", montant)
+    cell("A2", "Loyer")
+    cell("B2", loyer)
+    cell("A3", "Courses")
+    cell("B3", courses)
+})
+
+sheet("Détails", {
+    cell("A1", "Pi")
+    cell("B1", pi)
+})
+
+sheet("Résumé", {
+})
