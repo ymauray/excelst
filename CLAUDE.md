@@ -33,9 +33,26 @@ dotnet publish src/excelst/excelst.csproj -c Release -r osx-arm64
 ## CI / GitHub
 
 - **CI** (`.github/workflows/ci.yaml`) — lance `dotnet test` sur ubuntu à chaque push sur `main` et chaque PR. Le check s'appelle `Tests`.
-- **Release** (`.github/workflows/release.yaml`) — déclenché par un tag `vX.Y.Z` ; produit trois binaires (linux-x64, win-x64, osx-arm64) et crée une GitHub Release.
+- **Release** (`.github/workflows/release.yaml`) — déclenché par un tag `vX.Y.Z` (ou manuellement via `workflow_dispatch` avec un tag en input pour tester) :
+  1. Compile et archive pour linux-x64, win-x64, osx-arm64
+  2. Produit `.deb` et `.rpm` via `nfpm` (job Linux)
+  3. Crée la GitHub Release avec tous les assets
+  4. Met à jour `Formula/excelst.rb` dans `ymauray/homebrew-tap` (secret `HOMEBREW_TAP_TOKEN`)
+  5. Met à jour `excelst.json` dans `ymauray/scoop-bucket` (secret `SCOOP_BUCKET_TOKEN`)
 - **Dependabot** (`.github/dependabot.yml`) — surveille les GitHub Actions et les paquets NuGet, mises à jour mensuelles groupées.
 - **Branch protection** sur `main` : le merge est bloqué si le check `Tests` échoue (configuré dans Settings → Branches).
+
+## Distribution
+
+| Gestionnaire | Commande d'installation |
+|---|---|
+| Homebrew (macOS/Linux) | `brew install ymauray/tap/excelst` |
+| Scoop (Windows) | `scoop bucket add ymauray https://github.com/ymauray/scoop-bucket` puis `scoop install excelst` |
+| Debian/Ubuntu | `sudo dpkg -i excelst-linux-x64.deb` |
+| Fedora/RHEL | `sudo rpm -i excelst-linux-x64.rpm` |
+| Toutes plateformes | Télécharger l'archive depuis les [GitHub Releases](https://github.com/ymauray/excelst/releases) |
+
+Repos associés : `ymauray/homebrew-tap`, `ymauray/scoop-bucket`.
 
 ## Git
 
