@@ -35,7 +35,7 @@ jobs:
         run: echo "RELEASE_TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}" >> $GITHUB_ENV
         shell: bash
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -100,7 +100,7 @@ jobs:
           merge-multiple: true
           path: artifacts
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: artifacts/*
